@@ -7,7 +7,7 @@ from module.GCNs import ResidualAdd,MultiPerceptro,SpiralConv
 from module.SkinWeightModel import SkinWeightNet
 from smpl_pytorch.SMPL import SMPL
 from smpl_pytorch.util import batch_rodrigues,batch_global_rigid_transformation
-from torchvision.models import ResNet
+from torchvision.models import resnet50
 import numpy as np
 import os.path as osp
 from torchvision.ops import roi_align
@@ -116,7 +116,57 @@ class PatchEncoder(Module):
 		return x
 
 # origine
-class ImageEncoder(ResNet):
+class ImageEncoder(nn.Module):
+    def __init__(self, size=[540, 540], gar_latent_size=256):
+        super(ImageEncoder, self).__init__()
+        self.size = size
+        
+        # Load a pre-trained ResNet-50 model
+        resnet = resnet50(pretrained=True)
+        
+        # Remove the classification head (fc) since we'll define our own
+        self.backbone = nn.Sequential(*list(resnet.children())[:-2])
+        
+        self.avgpool = nn.AdaptiveAvgPool2d((8, 8))
+        self.fc = nn.Linear(2048 * 8 * 8, 2048)  # Adjust according to ResNet-50's feature dimensions
+        self.dropout = nn.Dropout(p=0.9)
+        
+        # Custom output layers
+        self.shape_fc = nn.Linear(2048, 10)
+        self.pose_fc = nn.Linear(2048, 24 * 9)  # Output matrix formation
+        self.tran_fc = nn.Linear(2048, 3)
+        self.tran_dp = nn.Dropout(p=0.3)
+        self.gar_latent_size = gar_latent_size
+        self.gar_fc = nn.Linear(2048, self.gar_latent_size)
+        
+        # Mean value from the train set
+        self.register_buffer('tran_mean', torch.from_numpy(np.array([-1.0962e-02,  2.8778e-01,  1.2973e+01]).astype(np.float32)))
+
+    def forward(self, x):
+        assert x.shape[-2] == self.size[0]
+        assert x.shape[-1] == self.size[1]
+        
+        # Pass through ResNet-50 backbone
+        x = self.backbone(x)
+        
+        fs1, fs2, fs3, fs4 = None, None, None, x  # Replace feature storage as needed
+        
+        # Adaptive pooling and flatten
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        
+        # Fully connected layers
+        x = self.dropout(x)
+        x = self.fc(x)
+        x = nn.ReLU()(x)
+        
+        shapes = self.shape_fc(x)
+        poses = self.pose_fc(x)
+        trans = self.tran_fc(self.tran_dp(x)) + self.tran_mean.view(1, 3)
+        gars = self.gar_fc(x)
+        
+        return shapes, poses, trans, gars, (fs1, fs2, fs3, fs4)
+""" class ImageEncoder(ResNet):
 	def __init__(self,size=[540,540],resSet=[2,2,2,2],gar_latent_size=256):
 		super(ImageEncoder,self).__init__(BasicBlock,resSet)
 		self.size=size
@@ -163,7 +213,7 @@ class ImageEncoder(ResNet):
 		gars=self.gar_fc(x)
 		return shapes,poses,trans,gars,(fs1,fs2,fs3,fs4)
 
-
+ """
 
 class SkinDeformNet(Module):
 	def __init__(self,smpl):
