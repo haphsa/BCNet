@@ -8,6 +8,7 @@ from module.SkinWeightModel import SkinWeightNet
 from smpl_pytorch.SMPL import SMPL
 from smpl_pytorch.util import batch_rodrigues,batch_global_rigid_transformation
 from torchvision.models import resnet50
+from torchvision.models import ResNet50_Weights
 import numpy as np
 import os.path as osp
 from torchvision.ops import roi_align
@@ -122,7 +123,8 @@ class ImageEncoder(nn.Module):
         self.size = size
         
         # Load a pre-trained ResNet-50 model
-        resnet = resnet50(pretrained=True)
+        resnet = resnet50(weights=ResNet50_Weights.DEFAULT)
+
         
         # Remove the classification head (fc) since we'll define our own
         self.backbone = nn.Sequential(*list(resnet.children())[:-2])
